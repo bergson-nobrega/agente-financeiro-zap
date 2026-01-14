@@ -1,7 +1,6 @@
 const express = require('express');
 const twilio = require('twilio');
 const { MessagingResponse } = twilio.twiml;
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 
@@ -10,17 +9,43 @@ app.use(express.urlencoded({ extended: false }));
 
 // Rota de verificação de saúde do serviço
 app.get('/', (req, res) => {
-  res.send('Agente Financeiro com Gemini AI está ON!');
+  res.send('Agente Financeiro com Gemini AI (via REST) está ON!');
 });
 
-// Inicializa o Gemini
-// Importante: A chave GEMINI_API_KEY deve estar nas variáveis de ambiente
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+// Função auxiliar para chamar a API do Gemini via HTTP (sem SDK)
+async function chamarGemini(prompt) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("API Key do Gemini não configurada");
 
-// Histórico simples em memória (para o bot lembrar do contexto da conversa atual)
-// Em produção, isso deveria ir para um banco de dados (Redis/Supabase)
-const conversas = {};
+  // Endpoint da API REST v1beta para o modelo gemini-1.5-flash
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
+    })
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Erro na API Gemini (${response.status}): ${errorBody}`);
+  }
+
+  const data = await response.json();
+  
+  // Extrai o texto da resposta
+  if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
+    return data.candidates[0].content.parts[0].text;
+  } else {
+    throw new Error("Formato de resposta inesperado do Gemini");
+  }
+}
 
 // Webhook para receber mensagens do WhatsApp via Twilio
 app.post('/twilio/whatsapp', async (req, res) => {
@@ -32,13 +57,7 @@ app.post('/twilio/whatsapp', async (req, res) => {
   const twiml = new MessagingResponse();
 
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      twiml.message("⚠️ Erro de configuração: API Key do Gemini não encontrada no servidor.");
-      res.type('text/xml').send(twiml.toString());
-      return;
-    }
-
-    // Prompt do sistema para guiar a personalidade e função do bot
+    // Prompt do sistema
     const promptSistema = `
       Você é um Assistente Financeiro Pessoal amigável e prático.
       Seu objetivo é ajudar o usuário a organizar suas finanças via WhatsApp.
@@ -56,18 +75,16 @@ app.post('/twilio/whatsapp', async (req, res) => {
       Mensagem do usuário: "${mensagemRecebida}"
     `;
 
-    // Gera a resposta com o Gemini
-    const result = await model.generateContent(promptSistema);
-    const respostaIA = result.response.text();
+    // Chama o Gemini
+    const respostaIA = await chamarGemini(promptSistema);
 
     console.log(`Resposta da IA: ${respostaIA}`);
-
-    // Envia a resposta da IA de volta para o WhatsApp
     twiml.message(respostaIA);
 
   } catch (erro) {
-    console.error("Erro ao chamar Gemini:", erro);
-    twiml.message("Desculpe, tive um problema cerebral momentâneo 🧠💥. Tente novamente em alguns segundos.");
+    console.error("Erro ao processar mensagem:", erro);
+    // Se der erro, mostramos o erro técnico no log do Railway, mas pro usuário mandamos algo amigável
+    twiml.message("Desculpe, tive um problema técnico momentâneo. Tente novamente em alguns segundos.");
   }
 
   res.type('text/xml');
