@@ -8,6 +8,7 @@
     "dev": "node index.js"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "express": "^4.21.2",
     "twilio": "^5.4.0"
   },
