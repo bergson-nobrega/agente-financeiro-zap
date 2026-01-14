@@ -17,8 +17,8 @@ async function chamarGemini(prompt) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("API Key do Gemini não configurada");
 
-  // Endpoint da API REST v1beta para o modelo gemini-pro (mais estável)
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+  // Endpoint da API REST v1 para o modelo gemini-1.5-flash
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   const response = await fetch(url, {
     method: 'POST',
