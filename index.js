@@ -1,50 +1,37 @@
+require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MessagingResponse } = twilio.twiml;
 
 const app = express();
+
+// Verificação inicial da API Key
+if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'SuaChaveDoGoogleAqui') {
+  console.error("CRÍTICO: A variável de ambiente GEMINI_API_KEY não está configurada corretamente no arquivo .env");
+  console.error("Por favor, edite o arquivo .env e coloque sua chave real do Google AI Studio.");
+  // Não encerra o processo para permitir que o servidor suba, mas avisa no log
+}
 
 // Middleware para processar dados enviados pelo Twilio (form-urlencoded)
 app.use(express.urlencoded({ extended: false }));
 
 // Rota de verificação de saúde do serviço
 app.get('/', (req, res) => {
-  res.send('Agente Financeiro com Gemini AI (via REST) está ON!');
+  res.send('Agente Financeiro com Gemini AI (via SDK) está ON!');
 });
 
-// Função auxiliar para chamar a API do Gemini via HTTP (sem SDK)
+// Função auxiliar para chamar a API do Gemini via SDK
 async function chamarGemini(prompt) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("API Key do Gemini não configurada");
 
-  // Endpoint da API REST v1 para o modelo gemini-1.5-flash-latest
-  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      contents: [{
-        parts: [{ text: prompt }]
-      }]
-    })
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Erro na API Gemini (${response.status}): ${errorBody}`);
-  }
-
-  const data = await response.json();
-  
-  // Extrai o texto da resposta
-  if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
-    return data.candidates[0].content.parts[0].text;
-  } else {
-    throw new Error("Formato de resposta inesperado do Gemini");
-  }
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  return response.text();
 }
 
 // Webhook para receber mensagens do WhatsApp via Twilio

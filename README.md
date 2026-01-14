@@ -4,7 +4,7 @@ Este é um MVP de um bot financeiro para WhatsApp utilizando Node.js, Twilio e I
 
 ## Funcionalidades
 - Recebe mensagens de texto via WhatsApp.
-- Usa IA (Gemini 1.5 Flash) para entender linguagem natural.
+- Usa IA (Gemini 1.5 Flash-latest) para entender linguagem natural.
 - Identifica automaticamente se é Despesa ou Receita.
 - Categoriza o gasto sozinho (ex: "Almoço" -> Categoria: Alimentação).
 
