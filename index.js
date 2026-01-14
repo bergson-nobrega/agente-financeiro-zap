@@ -16,7 +16,7 @@ app.get('/', (req, res) => {
 // Inicializa o Gemini
 // Importante: A chave GEMINI_API_KEY deve estar nas variáveis de ambiente
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
 // Histórico simples em memória (para o bot lembrar do contexto da conversa atual)
 // Em produção, isso deveria ir para um banco de dados (Redis/Supabase)
