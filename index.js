@@ -1,40 +1,23 @@
 require('dotenv').config();
 const express = require('express');
 const twilio = require('twilio');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { MessagingResponse } = twilio.twiml;
+const db = require('./db');
+const ai = require('./ai');
 
 const app = express();
 
 // Verificação inicial da API Key
 if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'SuaChaveDoGoogleAqui') {
-  console.error("CRÍTICO: A variável de ambiente GEMINI_API_KEY não está configurada corretamente no arquivo .env");
-  console.error("Por favor, edite o arquivo .env e coloque sua chave real do Google AI Studio.");
-  // Não encerra o processo para permitir que o servidor suba, mas avisa no log
+  console.error("CRÍTICO: A variável de ambiente GEMINI_API_KEY não está configurada corretamente.");
 }
 
-// Middleware para processar dados enviados pelo Twilio (form-urlencoded)
 app.use(express.urlencoded({ extended: false }));
 
-// Rota de verificação de saúde do serviço
 app.get('/', (req, res) => {
-  res.send('Agente Financeiro com Gemini AI (via SDK) está ON!');
+  res.send('Agente Financeiro V2 (com persistência SQLite) está ON!');
 });
 
-// Função auxiliar para chamar a API do Gemini via SDK
-async function chamarGemini(prompt) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("API Key do Gemini não configurada");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  return response.text();
-}
-
-// Webhook para receber mensagens do WhatsApp via Twilio
 app.post('/twilio/whatsapp', async (req, res) => {
   const mensagemRecebida = req.body.Body;
   const remetente = req.body.From;
@@ -44,41 +27,43 @@ app.post('/twilio/whatsapp', async (req, res) => {
   const twiml = new MessagingResponse();
 
   try {
-    // Prompt do sistema
-    const promptSistema = `
-      Você é um Assistente Financeiro Pessoal amigável e prático.
-      Seu objetivo é ajudar o usuário a organizar suas finanças via WhatsApp.
-      
-      Regras:
-      1. Se o usuário informar um gasto ou ganho (ex: "gastei 50 no almoço", "recebi 1000"), confirme que entendeu identificando:
-         - Tipo (Despesa ou Receita)
-         - Valor (formatado em R$)
-         - Categoria (invente uma categoria curta e lógica, ex: Alimentação, Transporte, Lazer)
-         - Descrição
-      2. Se for conversa fiada, responda de forma simpática mas tente trazer de volta para finanças.
-      3. Seja conciso (mensagens de WhatsApp não podem ser textões). Use emojis.
-      4. Se não entender o valor, pergunte gentilmente.
-      
-      Mensagem do usuário: "${mensagemRecebida}"
-    `;
+    // 1. Analisa a intenção do usuário usando IA (retorna JSON)
+    const analise = await ai.analisarIntencao(mensagemRecebida);
+    console.log("Intenção identificada:", analise);
 
-    // Chama o Gemini
-    const respostaIA = await chamarGemini(promptSistema);
+    let respostaFinal = "";
 
-    console.log(`Resposta da IA: ${respostaIA}`);
-    twiml.message(respostaIA);
+    if (analise.intencao === 'ADICIONAR_TRANSACAO') {
+      // Salva no banco de dados
+      const { tipo, valor, categoria, descricao } = analise.dados;
+      await db.adicionarTransacao(remetente, tipo, valor, categoria, descricao);
+      
+      respostaFinal = `✅ Registrado: ${tipo} de R$ ${valor} (${categoria} - ${descricao}).`;
+    
+    } else if (analise.intencao === 'CONSULTAR_SALDO') {
+      // Busca no banco e gera relatório
+      const periodo = analise.dados.periodo || 'mes';
+      const transacoes = await db.consultarTransacoes(remetente, periodo);
+      const resumo = await db.resumoFinanceiro(remetente);
+      
+      respostaFinal = await ai.gerarRespostaRelatorio(periodo, transacoes, resumo);
+
+    } else {
+      // Apenas conversa (CHAT)
+      respostaFinal = analise.resposta_chat || "Desculpe, não entendi.";
+    }
+
+    twiml.message(respostaFinal);
 
   } catch (erro) {
     console.error("Erro ao processar mensagem:", erro);
-    // Se der erro, mostramos o erro técnico no log do Railway, mas pro usuário mandamos algo amigável
-    twiml.message("Desculpe, tive um problema técnico momentâneo. Tente novamente em alguns segundos.");
+    twiml.message("Desculpe, tive um erro técnico. Tente novamente.");
   }
 
   res.type('text/xml');
   res.send(twiml.toString());
 });
 
-// Inicia o servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
